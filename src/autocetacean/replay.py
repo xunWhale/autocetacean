@@ -77,6 +77,9 @@ class ReplayEngine:
             event.setdefault("action", "execute")
             event.setdefault("error_message", event.get("error"))
             event.setdefault("checkpoint_id", None)
+            metadata = event.get("metadata")
+            metadata_violation = metadata.get("violation") if isinstance(metadata, Mapping) else None
+            event.setdefault("violation", metadata_violation)
             status = str(event.get("status", "SUCCESS")).upper()
             if status not in VALID_STATUSES:
                 raise ReplayError(f"event {index} has invalid status: {status!r}")
@@ -178,6 +181,14 @@ class ReplayEngine:
             prefix = f"{colors[status]}{marker} [{event['step_index']:>3}] {event['node_name']}" if ansi else f"{marker} [{event['step_index']:>3}] {event['node_name']}"
             suffix = "\033[0m" if ansi else ""
             lines.append(f"{prefix} -- {event.get('action', 'execute')} [{status}]{checkpoint}{diff_text}{error}{suffix}")
+            violation = event.get("violation")
+            if error and isinstance(violation, Mapping):
+                lines.append(
+                    f"    └─ 字段 {violation.get('path', '$')}："
+                    f"期望 {violation.get('expected', 'any')}，"
+                    f"实际 {violation.get('actual', 'unknown')}"
+                    f"（{violation.get('kind', 'validation')}）"
+                )
             if position < len(self.events) - 1:
                 lines.append("  │")
         if not self.events:
@@ -193,8 +204,18 @@ class ReplayEngine:
             status = event["status"]
             diff = self._diff(event.get("state_before", {}), event.get("state_after", {}))
             diff_json = html.escape(json.dumps(diff, ensure_ascii=False, indent=2))
-            cards.append(f'''<article class="step {status.lower()}"><header><span class="badge">{html.escape(status)}</span><strong>#{event["step_index"]} {html.escape(str(event["node_name"]))}</strong><time>{html.escape(str(event.get("timestamp", "")))}</time></header><p>{html.escape(str(event.get("action", "execute")))}{(" · " + html.escape(str(event["error_message"]))) if event.get("error_message") else ""}{(" · checkpoint " + html.escape(str(event["checkpoint_id"]))) if event.get("checkpoint_id") else ""}</p><details><summary>State diff ({len(diff)} fields)</summary><pre>{diff_json}</pre></details></article>''')
-        document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AutoCetacean Execution Replay</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#10131a;color:#e8edf5}}body{{max-width:1000px;margin:0 auto;padding:32px}}h1{{margin-bottom:4px}}.summary{{color:#a9b5c7;margin-bottom:28px}}.timeline{{border-left:2px solid #344054;padding-left:20px}}.step{{background:#171d28;border:1px solid #2b3546;border-left:5px solid #697586;border-radius:10px;margin:0 0 16px;padding:16px;box-shadow:0 4px 15px #0003}}.success{{border-left-color:#36c275}}.retry{{border-left-color:#e4ad36}}.rollback{{border-left-color:#b982ed}}.halt{{border-left-color:#f06464}}header{{display:flex;gap:12px;align-items:center}}header time{{margin-left:auto;color:#8d9aae;font-size:.85em}}.badge{{font-size:.75em;font-weight:700;padding:3px 8px;border-radius:99px;background:#344054}}.success .badge{{background:#1d6941}}.retry .badge{{background:#80601b}}.rollback .badge{{background:#59367c}}.halt .badge{{background:#873737}}pre{{white-space:pre-wrap;background:#0b0e13;padding:12px;border-radius:6px;overflow:auto}}summary{{cursor:pointer;color:#a9b5c7}}</style></head><body><h1>AutoCetacean Execution Replay</h1><div class="summary">{summary["total_steps"]} steps · {summary["successful_steps"]} successful · {summary["rollback_count"]} rollbacks · {summary["self_healing_convergence_rate"]:.1%} self-healing convergence</div><main class="timeline">{"".join(cards) or "<p>No execution steps.</p>"}</main></body></html>'''
+            violation = event.get("violation")
+            violation_html = ""
+            if isinstance(violation, Mapping):
+                violation_html = (
+                    '<div class="violation"><strong>Schema violation</strong>'
+                    f'<dl><dt>path</dt><dd>{html.escape(str(violation.get("path", "$") ))}</dd>'
+                    f'<dt>expected</dt><dd>{html.escape(str(violation.get("expected", "any")))}</dd>'
+                    f'<dt>actual</dt><dd>{html.escape(str(violation.get("actual", "unknown")))}</dd>'
+                    f'<dt>kind</dt><dd>{html.escape(str(violation.get("kind", "validation")))}</dd></dl></div>'
+                )
+            cards.append(f'''<article class="step {status.lower()}"><header><span class="badge">{html.escape(status)}</span><strong>#{event["step_index"]} {html.escape(str(event["node_name"]))}</strong><time>{html.escape(str(event.get("timestamp", "")))}</time></header><p>{html.escape(str(event.get("action", "execute")))}{(" · " + html.escape(str(event["error_message"]))) if event.get("error_message") else ""}{(" · checkpoint " + html.escape(str(event["checkpoint_id"]))) if event.get("checkpoint_id") else ""}</p>{violation_html}<details><summary>State diff ({len(diff)} fields)</summary><pre>{diff_json}</pre></details></article>''')
+        document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AutoCetacean Execution Replay</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#10131a;color:#e8edf5}}body{{max-width:1000px;margin:0 auto;padding:32px}}h1{{margin-bottom:4px}}.summary{{color:#a9b5c7;margin-bottom:28px}}.timeline{{border-left:2px solid #344054;padding-left:20px}}.step{{background:#171d28;border:1px solid #2b3546;border-left:5px solid #697586;border-radius:10px;margin:0 0 16px;padding:16px;box-shadow:0 4px 15px #0003}}.success{{border-left-color:#36c275}}.retry{{border-left-color:#e4ad36}}.rollback{{border-left-color:#b982ed}}.halt{{border-left-color:#f06464}}header{{display:flex;gap:12px;align-items:center}}header time{{margin-left:auto;color:#8d9aae;font-size:.85em}}.badge{{font-size:.75em;font-weight:700;padding:3px 8px;border-radius:99px;background:#344054}}.success .badge{{background:#1d6941}}.retry .badge{{background:#80601b}}.rollback .badge{{background:#59367c}}.halt .badge{{background:#873737}}.violation{{margin:12px 0;padding:10px 12px;border:1px solid #7b3f46;border-radius:6px;background:#26171c;color:#ffd7dc}}.violation dl{{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0}}.violation dt{{color:#ffb5be;font-family:monospace}}.violation dd{{margin:0;font-family:monospace}}pre{{white-space:pre-wrap;background:#0b0e13;padding:12px;border-radius:6px;overflow:auto}}summary{{cursor:pointer;color:#a9b5c7}}</style></head><body><h1>AutoCetacean Execution Replay</h1><div class="summary">{summary["total_steps"]} steps · {summary["successful_steps"]} successful · {summary["rollback_count"]} rollbacks · {summary["self_healing_convergence_rate"]:.1%} self-healing convergence</div><main class="timeline">{"".join(cards) or "<p>No execution steps.</p>"}</main></body></html>'''
         Path(output_path).write_text(document, encoding="utf-8")
 
     def export_summary(self) -> dict[str, Any]:
@@ -212,7 +233,13 @@ class ReplayEngine:
             if event["status"] in {"RETRY", "ROLLBACK"} and any(later["status"] == "SUCCESS" and later["node_name"] == event["node_name"] for later in self.events[i + 1:]):
                 recovered += 1
         convergence = recovered / (retries + rollbacks) if retries + rollbacks else (1.0 if self.events and not halts else 0.0)
-        return {"total_steps": len(self.events), "successful_steps": successes, "retry_count": retries, "rollback_count": rollbacks, "halt_count": halts, "duration_ms": round(elapsed_ms, 3), "duration_seconds": round(elapsed_ms / 1000, 3), "self_healing_convergence_rate": round(convergence, 6), "incident_count": incidents}
+        violation_kinds: dict[str, int] = {}
+        for event in self.events:
+            violation = event.get("violation")
+            if isinstance(violation, Mapping):
+                kind = str(violation.get("kind", "validation"))
+                violation_kinds[kind] = violation_kinds.get(kind, 0) + 1
+        return {"total_steps": len(self.events), "successful_steps": successes, "retry_count": retries, "rollback_count": rollbacks, "halt_count": halts, "duration_ms": round(elapsed_ms, 3), "duration_seconds": round(elapsed_ms / 1000, 3), "self_healing_convergence_rate": round(convergence, 6), "incident_count": incidents, "violation_kinds": violation_kinds}
 
 
 __all__ = ["ReplayEngine", "ReplayError"]

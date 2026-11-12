@@ -17,6 +17,30 @@ class LayerExecutionError(Exception):
 class SchemaValidationError(LayerExecutionError):
     """Raised when layer 2 schema validation rejects payload."""
 
+    def __init__(
+        self,
+        message: str,
+        path: str = "$",
+        expected: str = "any",
+        actual: str = "unknown",
+        kind: str = "validation",
+    ) -> None:
+        super().__init__(message)
+        self.path = path
+        self.expected = expected
+        self.actual = actual
+        self.kind = kind
+
+    def to_violation(self) -> Dict[str, str]:
+        """Return a serializable description of the failed schema constraint."""
+        return {
+            "kind": self.kind,
+            "path": self.path,
+            "expected": self.expected,
+            "actual": self.actual,
+            "message": str(self),
+        }
+
 
 class HarnessSecurityError(LayerExecutionError):
     """Raised when layer 3 sandbox detects unsafe command or side-effect."""
@@ -33,31 +57,58 @@ class Layer2ContextValidator:
     def validate_schema(data: Any, expected_schema: Dict[str, Any]) -> None:
         """Validate input dictionary against a lightweight standard JSON schema."""
         if not isinstance(data, dict):
-            raise SchemaValidationError(f"Expected object/dict, got {type(data).__name__}")
+            raise SchemaValidationError(
+                f"Expected object/dict, got {type(data).__name__}",
+                path="$",
+                expected="object",
+                actual=type(data).__name__,
+                kind="root_not_object",
+            )
 
-        req_fields: List[str] = expected_schema.get("required", [])
-        for field in req_fields:
-            if field not in data:
-                raise SchemaValidationError(f"Missing required schema property: {field!r}")
+        def validate_object(value: Dict[str, Any], schema: Dict[str, Any], path: str) -> None:
+            req_fields: List[str] = schema.get("required", [])
+            props: Dict[str, Any] = schema.get("properties", {})
+            for field in req_fields:
+                if field not in value:
+                    expected = props.get(field, {}).get("type", "any")
+                    field_path = f"{path}.{field}" if path != "$" else field
+                    raise SchemaValidationError(
+                        f"Missing required schema property: {field!r}",
+                        path=field_path,
+                        expected=expected,
+                        actual="null",
+                        kind="missing",
+                    )
 
-        props: Dict[str, Any] = expected_schema.get("properties", {})
-        for prop_name, prop_rule in props.items():
-            if prop_name not in data:
-                continue
-            val = data[prop_name]
-            expected_type = prop_rule.get("type")
-            if expected_type == "string" and not isinstance(val, str):
-                raise SchemaValidationError(f"Property {prop_name!r} expected string, got {type(val).__name__}")
-            elif expected_type == "integer" and (not isinstance(val, int) or isinstance(val, bool)):
-                raise SchemaValidationError(f"Property {prop_name!r} expected integer, got {type(val).__name__}")
-            elif expected_type == "number" and not isinstance(val, (int, float)):
-                raise SchemaValidationError(f"Property {prop_name!r} expected number, got {type(val).__name__}")
-            elif expected_type == "boolean" and not isinstance(val, bool):
-                raise SchemaValidationError(f"Property {prop_name!r} expected boolean, got {type(val).__name__}")
-            elif expected_type == "array" and not isinstance(val, list):
-                raise SchemaValidationError(f"Property {prop_name!r} expected array/list, got {type(val).__name__}")
-            elif expected_type == "object" and not isinstance(val, dict):
-                raise SchemaValidationError(f"Property {prop_name!r} expected object/dict, got {type(val).__name__}")
+            for prop_name, prop_rule in props.items():
+                if prop_name not in value:
+                    continue
+                val = value[prop_name]
+                expected_type = prop_rule.get("type", "any")
+                prop_path = f"{path}.{prop_name}" if path != "$" else prop_name
+                actual_type = type(val).__name__
+                invalid = (
+                    (expected_type == "string" and not isinstance(val, str))
+                    or (expected_type == "integer" and (not isinstance(val, int) or isinstance(val, bool)))
+                    or (expected_type == "number" and not isinstance(val, (int, float)))
+                    or (expected_type == "boolean" and not isinstance(val, bool))
+                    or (expected_type == "array" and not isinstance(val, list))
+                    or (expected_type == "object" and not isinstance(val, dict))
+                )
+                if invalid:
+                    labels = {"array": "array/list", "object": "object/dict"}
+                    expected_label = labels.get(expected_type, expected_type)
+                    raise SchemaValidationError(
+                        f"Property {prop_name!r} expected {expected_label}, got {actual_type}",
+                        path=prop_path,
+                        expected=expected_type,
+                        actual=actual_type,
+                        kind="type_mismatch",
+                    )
+                if expected_type == "object" and isinstance(val, dict):
+                    validate_object(val, prop_rule, prop_path)
+
+        validate_object(data, expected_schema, "$")
 
     @staticmethod
     def enforce_token_budget(context: ExecutionContext, estimated_tokens: int) -> None:

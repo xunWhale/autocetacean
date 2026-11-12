@@ -104,7 +104,7 @@ autocetacean replay execution-trace.jsonl --plain
 autocetacean replay execution-trace.jsonl --json --html replay.html
 ```
 
-The terminal and HTML views highlight retries, checkpoint rollbacks, halts, and state diffs. The JSON summary includes step counts, elapsed time, rollback count, and the self-healing convergence rate.
+The terminal and HTML views highlight retries, checkpoint rollbacks, halts, and state diffs. Schema validation failures also show the violating field path, expected type, actual type, and violation kind when replaying a trace. The JSON summary includes step counts, elapsed time, rollback count, the self-healing convergence rate, and `violation_kinds` counts.
 
 ## Running the Test Suite
 

@@ -142,6 +142,11 @@ class StateGraph:
                     input_data=dict(context.state),
                     error=str(exc),
                     duration_ms=duration_ms,
+                    **(
+                        {"metadata": {"violation": exc.to_violation()}}
+                        if isinstance(exc, SchemaValidationError)
+                        else {}
+                    ),
                 )
                 context.is_halted = True
                 context.halt_reason = f"Node {node.name!r} failed: {exc}"

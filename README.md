@@ -89,6 +89,23 @@ print(f"Revision: {entry.revision}, Bytes: {entry.byte_size}")
 ledger.rollback_to(entry.revision - 1)
 ```
 
+### 3. Replay an Execution Trace
+
+`autocetacean replay` accepts either a JSON array/object or one JSON event per line. Each event can include `step_index`, `timestamp`, `node_name`, `state_before`, `state_after`, `action`, `status`, `error_message`, and `checkpoint_id`.
+
+```bash
+# Read a human-friendly state transition timeline
+autocetacean replay execution-trace.jsonl
+
+# Disable ANSI colors for CI logs
+autocetacean replay execution-trace.jsonl --plain
+
+# Export summary JSON and a standalone HTML timeline
+autocetacean replay execution-trace.jsonl --json --html replay.html
+```
+
+The terminal and HTML views highlight retries, checkpoint rollbacks, halts, and state diffs. The JSON summary includes step counts, elapsed time, rollback count, and the self-healing convergence rate.
+
 ## Running the Test Suite
 
 ```bash

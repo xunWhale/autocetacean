@@ -19,6 +19,7 @@ from autocetacean.ledger import (
     LedgerQuotaExceededError,
     PersistentLedger,
 )
+from autocetacean.replay import ReplayEngine, ReplayError
 from autocetacean.types import (
     Checkpoint,
     ExecutionContext,
@@ -42,6 +43,8 @@ __all__ = [
     "SchemaValidationError",
     "HarnessSecurityError",
     "ContextBudgetExceededError",
+    "ReplayEngine",
+    "ReplayError",
     "ExecutionContext",
     "Checkpoint",
     "StepRecord",

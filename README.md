@@ -106,6 +106,28 @@ autocetacean replay execution-trace.jsonl --json --html replay.html
 
 The terminal and HTML views highlight retries, checkpoint rollbacks, halts, and state diffs. Schema validation failures also show the violating field path, expected type, actual type, and violation kind when replaying a trace. The JSON summary includes step counts, elapsed time, rollback count, the self-healing convergence rate, and `violation_kinds` counts.
 
+### 4. Export and visualize a StateGraph topology
+
+`autocetacean graph` loads a `StateGraph` from a Python module or file and exports its static topology. The target uses `module_path:graph_var` syntax; file targets use `path/to/workflow.py:graph_var`.
+
+```bash
+# Print Mermaid source to the terminal
+PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph
+
+# Write Mermaid source to a file
+PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph \
+  --format mermaid --output workflow.mmd
+
+# Write a standalone HTML viewer with deep-ocean styling and a zoomable graph area
+PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph \
+  --format html --output workflow.html --title "Self-Healing Agent"
+
+# Load a graph from an arbitrary Python file
+PYTHONPATH=src autocetacean graph ./my_workflow.py:graph --output workflow.html --format html
+```
+
+The Mermaid export marks entry and finish points, shows each node's `LayerKind`, uses dashed labelled arrows for statically recoverable conditional routes, and highlights human `Gate` nodes with a hexagon shape. The HTML export is one document with inline layout/styles and Mermaid loaded from its public CDN.
+
 ## Running the Test Suite
 
 ```bash
@@ -114,7 +136,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-All 52 unit tests execute in ~0.03s with 100% standard library compliance.
+All 76 unit tests execute in ~0.04s with 100% standard library compliance.
 
 ## License
 

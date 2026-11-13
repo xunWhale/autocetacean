@@ -20,6 +20,7 @@ from autocetacean.ledger import (
     PersistentLedger,
 )
 from autocetacean.replay import ReplayEngine, ReplayError
+from autocetacean.visualizer import GraphVisualizer
 from autocetacean.types import (
     Checkpoint,
     ExecutionContext,
@@ -45,6 +46,7 @@ __all__ = [
     "ContextBudgetExceededError",
     "ReplayEngine",
     "ReplayError",
+    "GraphVisualizer",
     "ExecutionContext",
     "Checkpoint",
     "StepRecord",

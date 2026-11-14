@@ -61,8 +61,68 @@ class CheckpointManager:
     def get_latest(self) -> Optional[Checkpoint]:
         return self._checkpoints[-1] if self._checkpoints else None
 
+    def get_checkpoint(self, checkpoint_id: str) -> Optional[Checkpoint]:
+        """Lookup a checkpoint by ID in memory or in storage_dir."""
+        for cp in reversed(self._checkpoints):
+            if cp.checkpoint_id == checkpoint_id:
+                return cp
+        if self.storage_dir and self.storage_dir.is_dir():
+            direct = self.storage_dir / f"{checkpoint_id}.json"
+            if direct.is_file():
+                cp = self._load_checkpoint_file(direct)
+                if cp is not None and cp.checkpoint_id == checkpoint_id:
+                    return cp
+            for file_path in sorted(self.storage_dir.glob("*.json")):
+                cp = self._load_checkpoint_file(file_path)
+                if cp is not None and cp.checkpoint_id == checkpoint_id:
+                    return cp
+        return None
+
+    def load_from_dir(self, storage_dir: Optional[Union[str, Path]] = None) -> Optional[Checkpoint]:
+        """Load persisted checkpoints from disk and return the latest checkpoint."""
+        target_dir = Path(storage_dir) if storage_dir is not None else self.storage_dir
+        if target_dir is None or not target_dir.is_dir():
+            return None
+        if storage_dir is not None and self.storage_dir is None:
+            self.storage_dir = target_dir
+
+        loaded: List[Checkpoint] = []
+        for file_path in sorted(target_dir.glob("*.json")):
+            cp = self._load_checkpoint_file(file_path)
+            if cp is not None:
+                loaded.append(cp)
+
+        if not loaded:
+            return None
+
+        loaded.sort(key=lambda c: (c.timestamp, c.step_index, c.checkpoint_id))
+        if self.max_checkpoints > 0 and len(loaded) > self.max_checkpoints:
+            loaded = loaded[-self.max_checkpoints:]
+        self._checkpoints = loaded
+        return self.get_latest()
+
     def list_checkpoints(self) -> List[Checkpoint]:
         return list(self._checkpoints)
+
+    @staticmethod
+    def _load_checkpoint_file(file_path: Path) -> Optional[Checkpoint]:
+        try:
+            data = json.loads(file_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(data, dict) or "checkpoint_id" not in data or "session_id" not in data:
+            return None
+        return Checkpoint(
+            checkpoint_id=str(data["checkpoint_id"]),
+            session_id=str(data["session_id"]),
+            step_index=int(data.get("step_index", 0)),
+            node_name=str(data.get("node_name", "")),
+            state=copy.deepcopy(data.get("state", {})),
+            variables=copy.deepcopy(data.get("variables", {})),
+            used_tokens=int(data.get("used_tokens", 0)),
+            timestamp=float(data.get("timestamp", 0.0)),
+            schema_version=str(data.get("schema_version", "1.0.0")),
+        )
 
     def _persist_checkpoint(self, cp: Checkpoint) -> None:
         if not self.storage_dir:

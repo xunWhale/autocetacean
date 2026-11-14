@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import re
 import time
@@ -159,26 +160,44 @@ class Layer4LoopController:
         while attempts < self.max_retries:
             attempts += 1
             start = time.time()
+            state_before = copy.deepcopy(context.state)
             try:
                 res = operation(context)
                 duration = (time.time() - start) * 1000.0
+                state_after = copy.deepcopy(context.state)
                 context.record_step(
                     node_name=node_name,
                     layer=LayerKind.LAYER_4_LOOP,
-                    input_data={"attempt": attempts},
-                    output_data=res,
+                    input_data=state_before,
+                    output_data=copy.deepcopy(res),
                     duration_ms=duration,
+                    metadata={
+                        "action": "retry" if attempts > 1 else "execute",
+                        "status": "SUCCESS",
+                        "attempt": attempts,
+                        "state_before": copy.deepcopy(state_before),
+                        "state_after": state_after,
+                    },
                 )
                 return res
             except Exception as e:
                 duration = (time.time() - start) * 1000.0
                 last_error = e
+                state_after = copy.deepcopy(context.state)
+                status = "RETRY" if attempts < self.max_retries else "HALT"
                 context.record_step(
                     node_name=node_name,
                     layer=LayerKind.LAYER_4_LOOP,
-                    input_data={"attempt": attempts},
+                    input_data=state_before,
                     error=str(e),
                     duration_ms=duration,
+                    metadata={
+                        "action": "retry",
+                        "status": status,
+                        "attempt": attempts,
+                        "state_before": copy.deepcopy(state_before),
+                        "state_after": state_after,
+                    },
                 )
 
         raise LayerExecutionError(f"Node {node_name!r} failed after {self.max_retries} attempts: {last_error}") from last_error

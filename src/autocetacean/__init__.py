@@ -1,6 +1,6 @@
 """AutoCetacean: Deterministic Runtime Engine for Autonomous AI Agents."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 from autocetacean.checkpoint import CheckpointManager
 from autocetacean.graph import GraphExecutionError, StateGraph

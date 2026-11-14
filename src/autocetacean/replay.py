@@ -12,7 +12,7 @@ from typing import Any, Iterable, Mapping, Optional, Union
 from autocetacean.types import ExecutionContext, StepRecord
 
 
-VALID_STATUSES = {"SUCCESS", "RETRY", "ROLLBACK", "HALT"}
+VALID_STATUSES = {"SUCCESS", "RETRY", "ROLLBACK", "HALT", "SUSPENDED"}
 
 
 class ReplayError(ValueError):
@@ -122,26 +122,7 @@ class ReplayEngine:
 
     @staticmethod
     def _record_to_event(index: int, record: StepRecord) -> dict[str, Any]:
-        metadata = dict(record.metadata or {})
-        state_before = metadata.pop("state_before", copy.deepcopy(record.input_data))
-        state_after = metadata.pop("state_after", copy.deepcopy(record.output_data))
-        if not isinstance(state_before, dict):
-            state_before = {"input": state_before}
-        if not isinstance(state_after, dict):
-            state_after = {"output": state_after}
-        return {
-            "step_index": index,
-            "timestamp": record.timestamp,
-            "node_name": record.node_name,
-            "state_before": state_before,
-            "state_after": state_after,
-            "action": metadata.pop("action", "execute"),
-            "status": metadata.pop("status", "HALT" if record.error else "SUCCESS"),
-            "error_message": record.error,
-            "checkpoint_id": metadata.pop("checkpoint_id", None),
-            "duration_ms": record.duration_ms,
-            "metadata": metadata,
-        }
+        return ExecutionContext._record_to_trace_event(index, record)
 
     @property
     def records(self) -> list[dict[str, Any]]:
@@ -169,11 +150,23 @@ class ReplayEngine:
         if format not in {"ansi", "plain"}:
             raise ValueError("format must be 'ansi' or 'plain'")
         ansi = format == "ansi"
-        colors = {"SUCCESS": "\033[32m", "RETRY": "\033[33m", "ROLLBACK": "\033[35m", "HALT": "\033[31m"}
+        colors = {
+            "SUCCESS": "\033[32m",
+            "RETRY": "\033[33m",
+            "ROLLBACK": "\033[35m",
+            "HALT": "\033[31m",
+            "SUSPENDED": "\033[36m",
+        }
         lines = ["AutoCetacean Execution Replay", "=" * 31]
         for position, event in enumerate(self.events):
             status = event["status"]
-            marker = {"SUCCESS": "✓", "RETRY": "↻", "ROLLBACK": "↩", "HALT": "✗"}[status]
+            marker = {
+                "SUCCESS": "✓",
+                "RETRY": "↻",
+                "ROLLBACK": "↩",
+                "HALT": "✗",
+                "SUSPENDED": "⏸",
+            }[status]
             checkpoint = f"  checkpoint={event['checkpoint_id']}" if event.get("checkpoint_id") else ""
             error = f"  error={event['error_message']}" if event.get("error_message") else ""
             diff = self._diff(event.get("state_before", {}), event.get("state_after", {}))
@@ -215,7 +208,7 @@ class ReplayEngine:
                     f'<dt>kind</dt><dd>{html.escape(str(violation.get("kind", "validation")))}</dd></dl></div>'
                 )
             cards.append(f'''<article class="step {status.lower()}"><header><span class="badge">{html.escape(status)}</span><strong>#{event["step_index"]} {html.escape(str(event["node_name"]))}</strong><time>{html.escape(str(event.get("timestamp", "")))}</time></header><p>{html.escape(str(event.get("action", "execute")))}{(" · " + html.escape(str(event["error_message"]))) if event.get("error_message") else ""}{(" · checkpoint " + html.escape(str(event["checkpoint_id"]))) if event.get("checkpoint_id") else ""}</p>{violation_html}<details><summary>State diff ({len(diff)} fields)</summary><pre>{diff_json}</pre></details></article>''')
-        document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AutoCetacean Execution Replay</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#10131a;color:#e8edf5}}body{{max-width:1000px;margin:0 auto;padding:32px}}h1{{margin-bottom:4px}}.summary{{color:#a9b5c7;margin-bottom:28px}}.timeline{{border-left:2px solid #344054;padding-left:20px}}.step{{background:#171d28;border:1px solid #2b3546;border-left:5px solid #697586;border-radius:10px;margin:0 0 16px;padding:16px;box-shadow:0 4px 15px #0003}}.success{{border-left-color:#36c275}}.retry{{border-left-color:#e4ad36}}.rollback{{border-left-color:#b982ed}}.halt{{border-left-color:#f06464}}header{{display:flex;gap:12px;align-items:center}}header time{{margin-left:auto;color:#8d9aae;font-size:.85em}}.badge{{font-size:.75em;font-weight:700;padding:3px 8px;border-radius:99px;background:#344054}}.success .badge{{background:#1d6941}}.retry .badge{{background:#80601b}}.rollback .badge{{background:#59367c}}.halt .badge{{background:#873737}}.violation{{margin:12px 0;padding:10px 12px;border:1px solid #7b3f46;border-radius:6px;background:#26171c;color:#ffd7dc}}.violation dl{{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0}}.violation dt{{color:#ffb5be;font-family:monospace}}.violation dd{{margin:0;font-family:monospace}}pre{{white-space:pre-wrap;background:#0b0e13;padding:12px;border-radius:6px;overflow:auto}}summary{{cursor:pointer;color:#a9b5c7}}</style></head><body><h1>AutoCetacean Execution Replay</h1><div class="summary">{summary["total_steps"]} steps · {summary["successful_steps"]} successful · {summary["rollback_count"]} rollbacks · {summary["self_healing_convergence_rate"]:.1%} self-healing convergence</div><main class="timeline">{"".join(cards) or "<p>No execution steps.</p>"}</main></body></html>'''
+        document = f'''<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AutoCetacean Execution Replay</title><style>:root{{color-scheme:dark;font-family:system-ui,sans-serif;background:#10131a;color:#e8edf5}}body{{max-width:1000px;margin:0 auto;padding:32px}}h1{{margin-bottom:4px}}.summary{{color:#a9b5c7;margin-bottom:28px}}.timeline{{border-left:2px solid #344054;padding-left:20px}}.step{{background:#171d28;border:1px solid #2b3546;border-left:5px solid #697586;border-radius:10px;margin:0 0 16px;padding:16px;box-shadow:0 4px 15px #0003}}.success{{border-left-color:#36c275}}.retry{{border-left-color:#e4ad36}}.rollback{{border-left-color:#b982ed}}.halt{{border-left-color:#f06464}}.suspended{{border-left-color:#4cc9f0}}header{{display:flex;gap:12px;align-items:center}}header time{{margin-left:auto;color:#8d9aae;font-size:.85em}}.badge{{font-size:.75em;font-weight:700;padding:3px 8px;border-radius:99px;background:#344054}}.success .badge{{background:#1d6941}}.retry .badge{{background:#80601b}}.rollback .badge{{background:#59367c}}.halt .badge{{background:#873737}}.suspended .badge{{background:#1d5d7a}}.violation{{margin:12px 0;padding:10px 12px;border:1px solid #7b3f46;border-radius:6px;background:#26171c;color:#ffd7dc}}.violation dl{{display:grid;grid-template-columns:max-content 1fr;gap:4px 12px;margin:8px 0 0}}.violation dt{{color:#ffb5be;font-family:monospace}}.violation dd{{margin:0;font-family:monospace}}pre{{white-space:pre-wrap;background:#0b0e13;padding:12px;border-radius:6px;overflow:auto}}summary{{cursor:pointer;color:#a9b5c7}}</style></head><body><h1>AutoCetacean Execution Replay</h1><div class="summary">{summary["total_steps"]} steps · {summary["successful_steps"]} successful · {summary["rollback_count"]} rollbacks · {summary["self_healing_convergence_rate"]:.1%} self-healing convergence</div><main class="timeline">{"".join(cards) or "<p>No execution steps.</p>"}</main></body></html>'''
         Path(output_path).write_text(document, encoding="utf-8")
 
     def export_summary(self) -> dict[str, Any]:
@@ -227,6 +220,7 @@ class ReplayEngine:
         retries = sum(e["status"] == "RETRY" for e in self.events)
         rollbacks = sum(e["status"] == "ROLLBACK" for e in self.events)
         halts = sum(e["status"] == "HALT" for e in self.events)
+        suspended = sum(e["status"] == "SUSPENDED" for e in self.events)
         incidents = retries + rollbacks + halts
         recovered = 0
         for i, event in enumerate(self.events):
@@ -239,7 +233,7 @@ class ReplayEngine:
             if isinstance(violation, Mapping):
                 kind = str(violation.get("kind", "validation"))
                 violation_kinds[kind] = violation_kinds.get(kind, 0) + 1
-        return {"total_steps": len(self.events), "successful_steps": successes, "retry_count": retries, "rollback_count": rollbacks, "halt_count": halts, "duration_ms": round(elapsed_ms, 3), "duration_seconds": round(elapsed_ms / 1000, 3), "self_healing_convergence_rate": round(convergence, 6), "incident_count": incidents, "violation_kinds": violation_kinds}
+        return {"total_steps": len(self.events), "successful_steps": successes, "retry_count": retries, "rollback_count": rollbacks, "halt_count": halts, "suspended_count": suspended, "duration_ms": round(elapsed_ms, 3), "duration_seconds": round(elapsed_ms / 1000, 3), "self_healing_convergence_rate": round(convergence, 6), "incident_count": incidents, "violation_kinds": violation_kinds}
 
 
 __all__ = ["ReplayEngine", "ReplayError"]

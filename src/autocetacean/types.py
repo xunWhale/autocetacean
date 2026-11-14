@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import copy
+import json
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
 
@@ -76,6 +79,62 @@ class ExecutionContext:
         )
         self.trajectory.append(record)
         return record
+
+    def reset_halt(self) -> "ExecutionContext":
+        """Clear halt state so the context can resume or retry execution."""
+        self.is_halted = False
+        self.halt_reason = None
+        return self
+
+    @staticmethod
+    def _record_to_trace_event(index: int, record: StepRecord) -> Dict[str, Any]:
+        metadata = copy.deepcopy(dict(record.metadata or {}))
+        state_before = metadata.pop("state_before", copy.deepcopy(record.input_data))
+        state_after = metadata.pop("state_after", copy.deepcopy(record.output_data))
+        if not isinstance(state_before, dict):
+            state_before = {"input": state_before}
+        if not isinstance(state_after, dict):
+            state_after = {"output": state_after}
+        action = metadata.pop("action", "execute")
+        status = metadata.pop("status", "HALT" if record.error else "SUCCESS")
+        checkpoint_id = metadata.pop("checkpoint_id", None)
+        return {
+            "step_index": index,
+            "timestamp": record.timestamp,
+            "node_name": record.node_name,
+            "state_before": state_before,
+            "state_after": state_after,
+            "action": action,
+            "status": status,
+            "error_message": record.error,
+            "checkpoint_id": checkpoint_id,
+            "duration_ms": record.duration_ms,
+            "metadata": metadata,
+        }
+
+    def to_trace_events(self) -> List[Dict[str, Any]]:
+        """Serialize trajectory steps into ReplayEngine-compatible event dicts."""
+        return [
+            self._record_to_trace_event(index, record)
+            for index, record in enumerate(self.trajectory, 1)
+        ]
+
+    def export_trace(self, path: Union[str, Path], format: str = "jsonl") -> Path:
+        """Export execution trajectory as JSONL or JSON compatible with ReplayEngine."""
+        fmt = format.lower()
+        if fmt not in {"jsonl", "json"}:
+            raise ValueError(f"Unsupported trace format: {format!r}. Expected 'jsonl' or 'json'.")
+
+        out_path = Path(path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        events = self.to_trace_events()
+        if fmt == "jsonl":
+            lines = [json.dumps(event, ensure_ascii=False, default=str) for event in events]
+            content = "\n".join(lines) + ("\n" if lines else "")
+        else:
+            content = json.dumps(events, indent=2, ensure_ascii=False, default=str) + "\n"
+        out_path.write_text(content, encoding="utf-8")
+        return out_path
 
 
 @dataclass

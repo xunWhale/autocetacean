@@ -89,7 +89,28 @@ print(f"Revision: {entry.revision}, Bytes: {entry.byte_size}")
 ledger.rollback_to(entry.revision - 1)
 ```
 
-### 3. Replay an Execution Trace
+### 3. Run a StateGraph from the CLI
+
+`autocetacean run` executes a `StateGraph` instance, a `build_graph()` factory, or a `(ctx)` callable from a Python module or file, optionally persisting rolling checkpoints, auto-approving human gates, and exporting a JSONL execution trace.
+
+```bash
+# Execute the self-healing agent demo with auto-approved Gate and trace export
+PYTHONPATH=src autocetacean run examples.self_healing_agent:graph \
+  --input '{"bug_report":"Buffer overflow in protocol scanner","target_file":"src/net/scanner.c"}' \
+  --checkpoint-dir .checkpoints \
+  --approve-gates \
+  --trace-out execution-trace.jsonl
+
+# Pause at a Gate node (inspect state / checkpoint before resuming in Python via graph.resume)
+PYTHONPATH=src autocetacean run examples.self_healing_agent:build_graph \
+  --input @task_input.json \
+  --trace-out suspended-trace.jsonl \
+  --json
+```
+
+In Python, `ExecutionContext.reset_halt()`, `ExecutionContext.export_trace()`, `StateGraph.resume(ctx, approved=..., restore_checkpoint=...)`, `StateGraph.run(..., reset_halt=True)`, and `CheckpointManager.get_checkpoint()` / `load_from_dir()` provide full programmatic recovery across gates and process restarts.
+
+### 4. Replay an Execution Trace
 
 `autocetacean replay` accepts either a JSON array/object or one JSON event per line. Each event can include `step_index`, `timestamp`, `node_name`, `state_before`, `state_after`, `action`, `status`, `error_message`, and `checkpoint_id`.
 
@@ -104,15 +125,19 @@ autocetacean replay execution-trace.jsonl --plain
 autocetacean replay execution-trace.jsonl --json --html replay.html
 ```
 
-The terminal and HTML views highlight retries, checkpoint rollbacks, halts, and state diffs. Schema validation failures also show the violating field path, expected type, actual type, and violation kind when replaying a trace. The JSON summary includes step counts, elapsed time, rollback count, the self-healing convergence rate, and `violation_kinds` counts.
+The terminal and HTML views highlight retries, checkpoint rollbacks, suspended gates, halts, and state diffs. Schema validation failures also show the violating field path, expected type, actual type, and violation kind when replaying a trace. The JSON summary includes step counts, elapsed time, rollback count, suspended count, the self-healing convergence rate, and `violation_kinds` counts.
 
-### 4. Export and visualize a StateGraph topology
+### 5. Export and visualize a StateGraph topology
 
-`autocetacean graph` loads a `StateGraph` from a Python module or file and exports its static topology. The target uses `module_path:graph_var` syntax; file targets use `path/to/workflow.py:graph_var`.
+`autocetacean graph` loads a `StateGraph` from a Python module or file and exports its static topology (optionally overlaid with an execution trace via `--trace`). The target uses `module_path:graph_var` syntax; file targets use `path/to/workflow.py:graph_var`.
 
 ```bash
 # Print Mermaid source to the terminal
 PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph
+
+# Overlay an execution trace onto the Mermaid or HTML topology
+PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph \
+  --trace execution-trace.jsonl --format html --output workflow-traced.html
 
 # Write Mermaid source to a file
 PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph \
@@ -126,7 +151,7 @@ PYTHONPATH=src autocetacean graph examples.self_healing_agent:graph \
 PYTHONPATH=src autocetacean graph ./my_workflow.py:graph --output workflow.html --format html
 ```
 
-The Mermaid export marks entry and finish points, shows each node's `LayerKind`, uses dashed labelled arrows for statically recoverable conditional routes, and highlights human `Gate` nodes with a hexagon shape. The HTML export is one document with inline layout/styles and Mermaid loaded from its public CDN.
+The Mermaid export marks entry and finish points, shows each node's `LayerKind`, uses dashed labelled arrows for statically recoverable conditional routes, and highlights human `Gate` nodes with a hexagon shape. When `--trace` is supplied, nodes also display execution status badges, retry/rollback counts, and schema violations. The HTML export is one document with inline layout/styles and Mermaid loaded from its public CDN.
 
 ## Running the Test Suite
 
@@ -136,7 +161,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-All 76 unit tests execute in ~0.04s with 100% standard library compliance.
+All 86 unit tests execute in ~0.1s with 100% standard library compliance.
 
 ## License
 

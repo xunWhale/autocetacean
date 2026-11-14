@@ -8,9 +8,10 @@ import inspect
 import re
 import textwrap
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from autocetacean.graph import GraphNode, StateGraph
+from autocetacean.replay import ReplayEngine
 
 
 @dataclass(frozen=True)
@@ -27,7 +28,24 @@ class GraphVisualizer:
     _MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"
 
     @classmethod
-    def to_mermaid(cls, graph: StateGraph) -> str:
+    def _normalize_trace(cls, trace: Any) -> Optional[ReplayEngine]:
+        if trace is None:
+            return None
+        if isinstance(trace, ReplayEngine):
+            return trace
+        return ReplayEngine(trace)
+
+    @classmethod
+    def _trace_by_node(cls, replay: Optional[ReplayEngine]) -> dict[str, list[dict[str, Any]]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        if replay is None:
+            return grouped
+        for event in replay.events:
+            grouped.setdefault(str(event.get("node_name", "")), []).append(event)
+        return grouped
+
+    @classmethod
+    def to_mermaid(cls, graph: StateGraph, trace: Any = None) -> str:
         """Return a deterministic Mermaid flowchart for ``graph``.
 
         ``StateGraph`` intentionally keeps conditional routers as callables. For
@@ -36,11 +54,13 @@ class GraphVisualizer:
         else 'b'`` form while retaining a visible fallback for dynamic routers.
         """
         cls._validate_graph(graph)
+        replay = cls._normalize_trace(trace)
+        grouped_trace = cls._trace_by_node(replay)
         node_ids = {name: f"node_{index}" for index, name in enumerate(graph.nodes, 1)}
         lines = ["flowchart TD"]
 
         for name, node in graph.nodes.items():
-            label = cls._node_label(graph, node)
+            label = cls._node_label(graph, node, grouped_trace.get(name))
             node_id = node_ids[name]
             if node.is_gate:
                 lines.append(f'    {node_id}{{{{"{label}"}}}}')
@@ -75,6 +95,16 @@ class GraphVisualizer:
                 "    classDef layer fill:#102539,stroke:#3d6a88,color:#d9edf8",
             ]
         )
+        if replay is not None:
+            lines.extend(
+                [
+                    "    classDef trace_success fill:#123f3a,stroke:#36c275,color:#e9fff4,stroke-width:2px",
+                    "    classDef trace_retry fill:#4a3b12,stroke:#e4ad36,color:#fff6dc,stroke-width:2px",
+                    "    classDef trace_rollback fill:#3a2356,stroke:#b982ed,color:#f5ebff,stroke-width:2px",
+                    "    classDef trace_halt fill:#541c24,stroke:#f06464,color:#ffe9ec,stroke-width:2px",
+                    "    classDef trace_suspended fill:#13425c,stroke:#4cc9f0,color:#e6f9ff,stroke-width:2px",
+                ]
+            )
         if graph.entry_point in node_ids:
             lines.append(f"    class {node_ids[graph.entry_point]} entry")
         finish_ids = [node_ids[name] for name in graph.nodes if name in graph.finish_points]
@@ -84,14 +114,48 @@ class GraphVisualizer:
         if gate_ids:
             lines.append(f"    class {','.join(gate_ids)} gate")
 
+        if replay is not None:
+            for status_key in ("SUCCESS", "RETRY", "ROLLBACK", "SUSPENDED", "HALT"):
+                matched_ids = [
+                    node_ids[name]
+                    for name in graph.nodes
+                    if grouped_trace.get(name) and grouped_trace[name][-1]["status"] == status_key
+                ]
+                if matched_ids:
+                    lines.append(f"    class {','.join(matched_ids)} trace_{status_key.lower()}")
+
         return "\n".join(lines) + "\n"
 
     @classmethod
-    def to_html(cls, graph: StateGraph, title: str = "AutoCetacean Workflow") -> str:
+    def to_html(
+        cls,
+        graph: StateGraph,
+        title: str = "AutoCetacean Workflow",
+        trace: Any = None,
+    ) -> str:
         """Return a self-contained HTML page embedding the Mermaid source."""
-        mermaid = cls.to_mermaid(graph)
+        replay = cls._normalize_trace(trace)
+        mermaid = cls.to_mermaid(graph, trace=replay)
         safe_title = html.escape(title, quote=True)
         mermaid_block = html.escape(mermaid)
+        trace_banner = ""
+        trace_legend = ""
+        if replay is not None:
+            summary = replay.export_summary()
+            trace_banner = (
+                f'<p class="subtitle">Trace overlay: {summary["total_steps"]} steps · '
+                f'{summary["successful_steps"]} successful · '
+                f'{summary["retry_count"]} retries · '
+                f'{summary["rollback_count"]} rollbacks · '
+                f'{summary["halt_count"]} halts · '
+                f'{summary["self_healing_convergence_rate"]:.1%} convergence</p>'
+            )
+            trace_legend = (
+                '<span><i class="swatch" style="background:#36c275"></i>Trace SUCCESS</span>'
+                '<span><i class="swatch" style="background:#e4ad36"></i>Trace RETRY</span>'
+                '<span><i class="swatch" style="background:#f06464"></i>Trace HALT</span>'
+                '<span><i class="swatch" style="background:#4cc9f0"></i>Trace SUSPENDED</span>'
+            )
         return f'''<!doctype html>
 <html lang="en">
 <head>
@@ -151,6 +215,7 @@ class GraphVisualizer:
         <div class="mark">AUTOCETACEAN / TOPOLOGY</div>
         <h1>{safe_title}</h1>
         <p class="subtitle">A static view of state transitions, conditional routing, layers, and human approval gates.</p>
+        {trace_banner}
       </div>
     </header>
     <section class="graph-card" aria-label="Workflow graph">
@@ -160,6 +225,7 @@ class GraphVisualizer:
       <span><i class="swatch entry"></i>Entry point</span>
       <span><i class="swatch finish"></i>Finish point</span>
       <span><i class="swatch gate"></i>Human gate</span>
+      {trace_legend}
     </div>
   </main>
   <script src="{cls._MERMAID_CDN}"></script>
@@ -176,12 +242,30 @@ class GraphVisualizer:
             raise TypeError(f"expected StateGraph, got {type(graph).__name__}")
 
     @staticmethod
-    def _node_label(graph: StateGraph, node: GraphNode) -> str:
+    def _node_label(
+        graph: StateGraph,
+        node: GraphNode,
+        node_events: Optional[list[dict[str, Any]]] = None,
+    ) -> str:
         markers = []
         if node.name == graph.entry_point:
             markers.append("ENTRY")
         if node.name in graph.finish_points:
             markers.append("FINISH")
+        if node_events:
+            last_status = node_events[-1]["status"]
+            retry_count = sum(e["status"] == "RETRY" for e in node_events)
+            rollback_count = sum(e["status"] == "ROLLBACK" for e in node_events)
+            trace_parts = []
+            if retry_count:
+                trace_parts.append(f"RETRY {retry_count}")
+            if rollback_count:
+                trace_parts.append(f"ROLLBACK {rollback_count}")
+            trace_parts.append(f"{last_status} x{len(node_events)}")
+            violation = next((e.get("violation") for e in reversed(node_events) if isinstance(e.get("violation"), dict)), None)
+            if violation:
+                trace_parts.append(f"violation {violation.get('kind', 'validation')} {violation.get('path', '$')}")
+            markers.append(" / ".join(trace_parts))
         marker = f"; {' / '.join(markers)}" if markers else ""
         layer = getattr(node.layer, "value", str(node.layer))
         return f"{GraphVisualizer._mermaid_text(node.name)} [{GraphVisualizer._mermaid_text(layer)}{marker}]"

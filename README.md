@@ -153,6 +153,33 @@ PYTHONPATH=src autocetacean graph ./my_workflow.py:graph --output workflow.html 
 
 The Mermaid export marks entry and finish points, shows each node's `LayerKind`, uses dashed labelled arrows for statically recoverable conditional routes, and highlights human `Gate` nodes with a hexagon shape. When `--trace` is supplied, nodes also display execution status badges, retry/rollback counts, and schema violations. The HTML export is one document with inline layout/styles and Mermaid loaded from its public CDN.
 
+### 6. Transactional Workspace Guard (`autocetacean guard`)
+
+Wrap any coding agent, script, or tool command in an atomic snapshot transaction verified by a deterministic gate (e.g. `pytest`):
+
+```bash
+autocetacean guard --workspace ./repo \
+  --cmd "python agent_edit.py" \
+  --gate "pytest -q" \
+  --trace-out .autocetacean/traces/run.json --json
+```
+
+If the command fails, times out, or fails the gate, AutoCetacean atomically restores every modified, deleted, or newly created file (preserving pre-existing dirty edits) and writes the failure trace.
+
+### 7. MCP Stdio Record & Offline Replay
+
+Record a live stdio MCP server session to JSONL and deterministically replay it offline without spawning the backend server:
+
+```bash
+# Record live JSON-RPC 2.0 exchanges
+autocetacean mcp-record --trace session.jsonl -- python my_mcp_server.py
+
+# Replay offline in strict mode (returns -32602 / -32601 on drifted tool arguments)
+autocetacean mcp-replay --trace session.jsonl --strict
+```
+
+See [examples/real_agent_guard_and_mcp_replay.py](examples/real_agent_guard_and_mcp_replay.py) for an end-to-end walkthrough.
+
 ## Running the Test Suite
 
 ```bash
@@ -161,7 +188,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-All 86 unit tests execute in ~0.1s with 100% standard library compliance.
+All 92 unit tests execute in <1s with 100% standard library compliance.
 
 ## License
 

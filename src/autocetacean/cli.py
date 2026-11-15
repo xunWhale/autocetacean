@@ -16,6 +16,8 @@ from autocetacean import __version__
 from autocetacean.graph import GraphExecutionError, StateGraph
 from autocetacean.layers import LayerExecutionError
 from autocetacean.ledger import PersistentLedger
+from autocetacean.mcp_proxy import MCPStdioRecorder, MCPStdioReplayer
+from autocetacean.workspace import SubprocessToolGuard, WorkspaceGuardError
 from autocetacean.replay import ReplayEngine, ReplayError
 from autocetacean.types import ExecutionContext
 from autocetacean.visualizer import GraphVisualizer
@@ -174,6 +176,24 @@ def main(argv=None) -> int:
     run_p.add_argument("--checkpoint-dir", metavar="DIR", help="Directory to persist rolling checkpoints")
     run_p.add_argument("--approve-gates", action="store_true", help="Automatically approve and resume Gate nodes")
     run_p.add_argument("--json", action="store_true", help="Output machine-readable JSON result")
+
+    guard_p = subparsers.add_parser("guard", help="Run a command in a transactional workspace with gate verification")
+    guard_p.add_argument("--workspace", required=True, help="Workspace directory to snapshot and protect")
+    guard_p.add_argument("--cmd", required=True, help="Command to execute inside workspace")
+    guard_p.add_argument("--gate", help="Deterministic verification command")
+    guard_p.add_argument("--timeout", type=float, default=30.0, help="Command timeout seconds")
+    guard_p.add_argument("--gate-timeout", type=float, default=60.0, help="Gate timeout seconds")
+    guard_p.add_argument("--trace-out", metavar="PATH", help="Write JSON GuardOutcome trace to path")
+    guard_p.add_argument("--json", action="store_true", help="Output machine-readable JSON")
+
+    rec_p = subparsers.add_parser("mcp-record", help="Proxy and record an MCP stdio JSON-RPC server session")
+    rec_p.add_argument("--trace", required=True, help="Output JSONL trace file")
+    rec_p.add_argument("--cwd", help="Working directory for MCP server")
+    rec_p.add_argument("server_cmd", nargs=argparse.REMAINDER, help="Server command after '--'")
+
+    rep_p = subparsers.add_parser("mcp-replay", help="Serve an offline deterministic MCP stdio replay from a trace")
+    rep_p.add_argument("--trace", required=True, help="Input JSONL trace file")
+    rep_p.add_argument("--strict", action="store_true", help="Fail with exit 1 if any call mismatches the trace")
 
     args = parser.parse_args(argv)
 
@@ -335,6 +355,43 @@ def main(argv=None) -> int:
         if run_error is not None or ctx.is_halted:
             return 1
         return 0
+
+    if args.command == "guard":
+        try:
+            guard = SubprocessToolGuard(args.workspace, timeout=args.timeout, gate_timeout=args.gate_timeout)
+            outcome = guard.run(args.cmd, gate_cmd=args.gate, trace_out=args.trace_out)
+        except (OSError, WorkspaceGuardError) as exc:
+            print(f"autocetacean: guard error: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print(json.dumps(outcome.to_dict(), indent=2, ensure_ascii=False))
+        else:
+            verdict = "PASSED" if outcome.passed else ("TIMED_OUT" if outcome.timed_out else "ROLLED_BACK")
+            print(f"AutoCetacean Guard [{verdict}] cmd_rc={outcome.cmd_returncode} gate_rc={outcome.gate_returncode} rolled_back={outcome.rolled_back}")
+        return 0 if outcome.passed else 1
+
+    if args.command == "mcp-record":
+        cmd_tokens = list(args.server_cmd or [])
+        if cmd_tokens and cmd_tokens[0] == "--":
+            cmd_tokens = cmd_tokens[1:]
+        if not cmd_tokens:
+            print("autocetacean: mcp-record requires server command after '--'", file=sys.stderr)
+            return 2
+        try:
+            MCPStdioRecorder(cmd_tokens, cwd=args.cwd).record(args.trace)
+        except OSError as exc:
+            print(f"autocetacean: mcp-record failed: {exc}", file=sys.stderr)
+            return 2
+        return 0
+
+    if args.command == "mcp-replay":
+        try:
+            replayer = MCPStdioReplayer.from_trace(args.trace, strict=args.strict)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
+            print(f"autocetacean: unable to load MCP trace: {exc}", file=sys.stderr)
+            return 2
+        mismatches = replayer.serve_stdio()
+        return 1 if (args.strict and mismatches) else 0
 
     parser.print_help()
     return 0

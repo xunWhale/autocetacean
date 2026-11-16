@@ -71,5 +71,34 @@ EXIT=0
 - `dist/autocetacean-0.4.0-py3-none-any.whl` — 41271 bytes
 - `dist/autocetacean-0.4.0.tar.gz` — 52546 bytes
 
-## 5. 从公共 GitHub URL 安装（真实用户路径）
-见下方 v0.4.0 tag 推送后的实测记录。
+## 5. 从公共 GitHub URL 安装（真实用户路径，v0.4.0 tag 推送后实测）
+```bash
+python3 -m venv /tmp/ac_v04_pub
+/tmp/ac_v04_pub/bin/pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean@v0.4.0"
+cd /tmp && /tmp/ac_v04_pub/bin/autocetacean --version   # autocetacean 0.4.0
+cd /tmp && /tmp/ac_v04_pub/bin/autocetacean demo
+```
+
+```text
+AutoCetacean demo — two guarantees, one command, no external dependencies
+
+[PASS] workspace_guard_rollback
+       gate exit code: 1
+       rolled back:    True
+       changed files:  {'added': ['junk.txt'], 'modified': ['calc.py'], 'deleted': []}
+       junk removed:   True
+       restored:       'return a + b'
+
+[PASS] mcp_record_and_offline_replay
+       recorded exchanges: 2
+       replayed value:     12
+       drift error code:   -32602
+       mismatches caught:  1
+
+AutoCetacean demo: ALL CHECKS PASSED (guard rollback + mcp replay)
+
+EXIT=0
+```
+
+即：文档里写给陌生人的那条命令，在本机从公开仓库全新装一遍后确实跑通，
+且 `demo` 是在 `/tmp`（不在仓库目录、无 PYTHONPATH）下执行的。

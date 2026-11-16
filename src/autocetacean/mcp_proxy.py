@@ -46,6 +46,19 @@ class MCPTraceEntry:
         )
 
 
+def _subprocess_stderr_target(stream):
+    """Pass a real stream to Popen; fall back to DEVNULL when it has no file descriptor.
+
+    Captured streams (pytest's ``capsys``, an in-memory buffer) cannot be handed to a
+    subprocess, so degrade quietly instead of raising from inside the recorder.
+    """
+    try:
+        stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return subprocess.DEVNULL
+    return stream
+
+
 def load_mcp_trace(trace_path: str | Path) -> list[MCPTraceEntry]:
     entries: list[MCPTraceEntry] = []
     for raw in Path(trace_path).read_text(encoding="utf-8").splitlines():
@@ -95,7 +108,7 @@ class MCPStdioRecorder:
             shell=isinstance(self.server_cmd, str),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=sys.stderr,
+            stderr=_subprocess_stderr_target(sys.stderr),
         )
         assert proc.stdin is not None and proc.stdout is not None
 

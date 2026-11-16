@@ -16,6 +16,7 @@ from autocetacean import __version__
 from autocetacean.graph import GraphExecutionError, StateGraph
 from autocetacean.layers import LayerExecutionError
 from autocetacean.ledger import PersistentLedger
+from autocetacean.demo import run_demo
 from autocetacean.mcp_proxy import MCPStdioRecorder, MCPStdioReplayer
 from autocetacean.workspace import SubprocessToolGuard, WorkspaceGuardError
 from autocetacean.replay import ReplayEngine, ReplayError
@@ -176,6 +177,9 @@ def main(argv=None) -> int:
     run_p.add_argument("--checkpoint-dir", metavar="DIR", help="Directory to persist rolling checkpoints")
     run_p.add_argument("--approve-gates", action="store_true", help="Automatically approve and resume Gate nodes")
     run_p.add_argument("--json", action="store_true", help="Output machine-readable JSON result")
+
+    demo_p = subparsers.add_parser("demo", help="Run a self-contained demo of the guard and MCP replay")
+    demo_p.add_argument("--json", action="store_true", help="Output the demo report as JSON")
 
     guard_p = subparsers.add_parser("guard", help="Run a command in a transactional workspace with gate verification")
     guard_p.add_argument("--workspace", required=True, help="Workspace directory to snapshot and protect")
@@ -355,6 +359,12 @@ def main(argv=None) -> int:
         if run_error is not None or ctx.is_halted:
             return 1
         return 0
+
+    if args.command == "demo":
+        report = run_demo(quiet=args.json)
+        if args.json:
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0 if report["passed"] else 1
 
     if args.command == "guard":
         try:

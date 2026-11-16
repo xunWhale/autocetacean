@@ -11,6 +11,32 @@
 
 ---
 
+---
+
+## See it work in 60 seconds
+
+```bash
+pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
+autocetacean demo
+```
+
+`autocetacean demo` needs no API key, no network, and no third-party package. It creates a throwaway
+project in a temp directory and proves two things end to end:
+
+1. **Transactional workspace rollback.** An "agent" writes broken code; a `unittest` gate rejects it;
+   the guard restores every modified file and deletes what the agent created — atomically.
+2. **Offline MCP replay.** A real stdio MCP server session is recorded to JSONL, then replayed with
+   the backend process gone. Matching calls return the recorded result; a drifted call is rejected
+   with JSON-RPC `-32602` in strict mode.
+
+A successful run ends with:
+
+```text
+AutoCetacean demo: ALL CHECKS PASSED (guard rollback + mcp replay)
+```
+
+---
+
 ## Why AutoCetacean?
 
 Most contemporary agent frameworks treat language models as black-box loops: they append endlessly to a prompt, hope the model parses tool arguments correctly, and pray it recovers when an error occurs. In practice:

@@ -69,3 +69,20 @@ pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
 
 installed `autocetacean 0.4.0`. No dependency was preinstalled; the package declares zero runtime
 dependencies, and the script needs only `git` and `python3`.
+
+## Performance, and where this is the wrong tool
+
+A snapshot copies the workspace, so the cost scales with the bytes in it. Measured on this machine:
+
+| workspace | files | filesystem | snapshot + run + rollback |
+| --- | --- | --- | --- |
+| 415 MB | 4 001 | tmpfs | 478 ms |
+| 113 MB | 2 001 | ext4 | 183 ms |
+
+A repo under a few hundred megabytes is sub-second, which is cheap enough to wrap every agent
+invocation. A multi-gigabyte monorepo is not what this is for: there, the right move is to run the
+agent inside a container or a throwaway checkout, not to copy the tree twice.
+
+The other thing to know: the snapshot lives in a temp directory on the same machine. If the machine
+dies, the snapshot dies with it. That is why the [What this is and is not](#what-this-is-and-is-not)
+section says backups are not optional.

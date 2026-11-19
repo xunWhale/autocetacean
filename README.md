@@ -7,6 +7,8 @@
 
 **Your coding agent just broke your repo. Get it back with one command.**
 
+![autocetacean guard rolling back a failed agent run](docs/demo-guard.gif)
+
 ```bash
 pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
 autocetacean guard --workspace . --cmd "claude -p 'fix the failing test'" --gate "pytest -q"

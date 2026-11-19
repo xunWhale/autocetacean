@@ -12,16 +12,19 @@ pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
 autocetacean guard --workspace . --cmd "claude -p 'fix the failing test'" --gate "pytest -q"
 ```
 
-If the gate fails, the guard restores every file the agent modified and deletes everything it created — atomically, no `git stash`, no manual diff review. A real run on a throwaway repo (output verbatim):
+If the gate fails, the guard restores the workspace to what it was — atomically, no `git stash`, no manual diff review. That includes the files `git status` never sees.
+
+**Verified, verbatim** (throwaway repo; the "agent" modified a tracked file, deleted an untracked file, removed a directory, and created a new one):
 
 ```text
-$ autocetacean guard --workspace . --cmd "printf 'def f(:\n' > a.py" --gate "python3 -c 'import a; assert a.f()==1'"
+$ autocetacean guard --workspace . --cmd "printf 'VALUE=999\n' > a.py; rm untracked.txt; echo junk > junk.log; rm -rf sub" \
+      --gate "python3 -c 'import a; assert a.VALUE==1'"
 AutoCetacean Guard [ROLLED_BACK] cmd_rc=0 gate_rc=1 rolled_back=True
-$ cat a.py
-def f():
-    return 1
-$ git status --short
-                      # nothing — the workspace is byte-for-byte what it was
+
+$ cat a.py             # VALUE = 1  — restored
+$ cat untracked.txt    # keep me   — restored, even though git never tracked it
+$ cat sub/b.py         # nested    — directory restored
+$ ls junk.log          # gone      — created by the agent, deleted by the rollback
 ```
 
 That is the whole idea: an agent's edits are a transaction, and a deterministic gate decides whether to commit or roll back.

@@ -5,6 +5,29 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Zero-Dependencies](https://img.shields.io/badge/Dependencies-0_Runtime-success.svg)](pyproject.toml)
 
+**Your coding agent just broke your repo. Get it back with one command.**
+
+```bash
+pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
+autocetacean guard --workspace . --cmd "claude -p 'fix the failing test'" --gate "pytest -q"
+```
+
+If the gate fails, the guard restores every file the agent modified and deletes everything it created — atomically, no `git stash`, no manual diff review. A real run on a throwaway repo (output verbatim):
+
+```text
+$ autocetacean guard --workspace . --cmd "printf 'def f(:\n' > a.py" --gate "python3 -c 'import a; assert a.f()==1'"
+AutoCetacean Guard [ROLLED_BACK] cmd_rc=0 gate_rc=1 rolled_back=True
+$ cat a.py
+def f():
+    return 1
+$ git status --short
+                      # nothing — the workspace is byte-for-byte what it was
+```
+
+That is the whole idea: an agent's edits are a transaction, and a deterministic gate decides whether to commit or roll back.
+
+---
+
 **The Deterministic Runtime, State-Machine Execution Graph, and Rolling Checkpoint Engine for Autonomous AI Agents.**
 
 > *"Modern agent engineering is not about praying to bigger models — it is about engineering deterministic constraints."*

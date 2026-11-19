@@ -62,16 +62,10 @@ committed yet.
 The gap is always the same: **content that never reached git, changed by a shell command, inside a
 directory an agent has write access to.** Three things close it, in increasing order of effort:
 
-**Deny rules for the destructive commands.** In `.claude/settings.json`, refuse the commands that do
-bulk damage:
-
-```json
-{
-  "permissions": {
-    "deny": ["Bash(rm -rf:*)", "Bash(git reset --hard:*)", "Bash(git clean:*)"]
-  }
-}
-```
+**Deny rules for the destructive commands.** Claude Code reads allow/deny rules for shell commands
+from `.claude/settings.json`. Refuse the commands that do bulk damage — the exact rule syntax is in
+[Permissions](https://code.claude.com/docs/en/permissions), and the point is to name `rm`, `git reset
+--hard` and `git clean` explicitly rather than trusting that nobody will run them.
 
 This is cheap and it stops the common accident. It does not stop a script the agent writes and then
 runs, which is where the bigger losses come from.

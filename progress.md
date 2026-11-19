@@ -13,3 +13,14 @@
   - `StateGraph.run()` 过去使用 `dict(context.state)` 浅拷贝并在 `handler` 执行之后才调用 `record_step()`，导致嵌套字典被原地修改后污染 `input_data` 与前态快照；必须先 `copy.deepcopy` 抓取 `state_before`，再校验并执行，结束后再抓 `state_after`。
   - `examples/self_healing_agent.py` 若把 `checkpoint_mgr` 闭包进节点函数，`CLI --checkpoint-dir` 直接替换 `graph.checkpoints` 会导致节点内与图引擎持有的管理器分叉；通过更新现有 `graph.checkpoints.storage_dir` 可保证闭环一致落盘。
   - `StateGraph` 的条件边只保存 router callable，拓扑导出会从 router 返回表达式和代码常量恢复已注册节点，无法恢复时输出可见的 conditional route 占位节点。
+
+## 2026-11-19（周三）
+
+- 首屏改成"agent 把你仓库改坏了"的痛点 + 可跑命令，`guard` 成为入口，不再是抽象的 runtime（fa26dd5）
+- 新增 `examples/git-is-not-enough.sh`：同一场混乱，git 恢复丢未跟踪文件与目录，guard 全部还原（a6a315c）
+- 新增 `docs/why-not-just-git.md`：贴的是脚本真实输出，并写明这不是备份、多 GB 仓库不适用（f41e7f2）
+- 干净 venv 里 `pip install git+https://...` 后脚本跑通，已验证（0fa667f）
+- 补性能实测：415 MB tmpfs 478 ms、113 MB ext4 183 ms，写进文档当边界（f4f9dd5）
+- 新增 `docs/claude-code-deleted-my-files.md`：按实际来源分流救援路径（/rewind 的官方限制、git 只救已提交、快照/回收站/编辑器历史），预防与事后分开写（59f499d、8004115）
+- 仓库描述与 topics 改到"rollback / agent-safety / claude-code"，profile README 同步（703458b）
+- 判断：同类项目十几个，最高 7 star。今天起不再加功能，只把"看懂 + 能验证"做到位

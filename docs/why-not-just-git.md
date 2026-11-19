@@ -58,3 +58,14 @@ does not replace a remote. If an agent runs `rm -rf /`, a workspace guard is not
 
 Rule of thumb: use both. Backups for disasters, the guard for the ordinary case where an agent's
 20-file refactor is 90% right and you cannot tell which 10% is wrong.
+
+## Verified in a clean environment
+
+Both the script and the output above were run inside a fresh `python3 -m venv` after:
+
+```bash
+pip install "autocetacean @ git+https://github.com/xunWhale/autocetacean"
+```
+
+installed `autocetacean 0.4.0`. No dependency was preinstalled; the package declares zero runtime
+dependencies, and the script needs only `git` and `python3`.

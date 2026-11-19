@@ -29,6 +29,8 @@ $ ls junk.log          # gone      — created by the agent, deleted by the roll
 
 That is the whole idea: an agent's edits are a transaction, and a deterministic gate decides whether to commit or roll back.
 
+Curious why `git checkout` does not cover this? Run [`examples/git-is-not-enough.sh`](examples/git-is-not-enough.sh) — it reproduces the exact case where git loses an untracked file an agent deleted, and the guard gets it back. The reasoning is in [Why not just git?](docs/why-not-just-git.md).
+
 ---
 
 **The Deterministic Runtime, State-Machine Execution Graph, and Rolling Checkpoint Engine for Autonomous AI Agents.**
